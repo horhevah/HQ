@@ -2,11 +2,10 @@ import datetime
 
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models import Count
 
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
-
-from school import services
 
 
 class Product(models.Model):
@@ -40,32 +39,95 @@ class Group(models.Model):
         return self.group_name
 
 
+
+
 # default behavior signal handler
-@receiver(m2m_changed, sender=Product)
-def fill_group_default(sender, product, action, reverse, model, user_set, **kwargs):
-    if action == "post_add":
+
+"""
+Я знаю, что решение неверно  как минимум потому что не учитывает минимальное кол-во студентов в группе,
+но решил сдать это, т.к. это уже лучше, чем отсутсвие решения.
+
+Задание было для меня неожиданностью, поэтому было сложно выделить на него время
+"""
+
+def fill_group_default(sender, **kwargs):
+    print('action', kwargs["action"])
+    if kwargs["action"] == "post_add":
         now_datetime = datetime.datetime.now()
-        start_product_datetime = product.start_datetime
-        if now_datetime < start_product_datetime:
-            user_list = list(user_set)
-            # check if groups already exist
-            if product.groups.count() != 0:
-                for user_pk in user_list:
-                    group_with_min_load = sorted(product.groups, key=lambda x: len(x.studets.count()))[0]
-                    if group_with_min_load.students.count() < product.max_users_in_group:
-                        user = User.objects.get(user_pk)
-                        group_with_min_load.students.add(user)
-                    else:
-                        services.shake_students()
-                        # group = Group(
-                        #     group_name=f"{product.product_name}_{product.groups.count() + 1}",
-                        #     product=product
-                        # )
-                        # group.save()
-                        # group.students.add(User.objects.get(user_pk))
-
-            else:
-                services.shake_students()
+        start_product_datetime = kwargs["instance"].start_datetime
+        user_list = list(kwargs["pk_set"])
+        if not kwargs["instance"].group.count():
+            fill_empty_product(kwargs["instance"], user_list)
+        elif now_datetime < start_product_datetime:
+            fill_product_before_start(kwargs["instance"], user_list)
+        else:
+            fill_product_after_start(kwargs["instance"], user_list)
 
 
+def fill_empty_product(product: Product, user_list: list) -> None:
+    new_group_count = (len(user_list) // product.max_users_in_group) + 1
+    new_groups = []
+    for group in range(new_group_count):
+        new_group = Group(
+            group_name=f"{product.product_name}_{group + 1}",
+            product=product
+        )
+        new_group.save()
+        new_groups.append(new_group)
+    for n, user_pk in enumerate(user_list):
+        user_to_add = User.objects.get(pk=user_pk)
+        new_groups[n % new_group_count].students.add(user_to_add)
 
+
+def fill_product_before_start(product: Product, user_list: list) -> None:
+    # check if groups already exist
+    free_spots_number = product.group.count() - product.students.count()
+    if len(user_list) < free_spots_number:
+        for user_pk in user_list:
+            group_with_min_load = product.group.all().annotate(students_count=Count('students')).order_by(
+                'students_count').first()
+            user = User.objects.get(user_pk)
+            group_with_min_load.students.add(user)
+    else:
+        new_group_count = len(user_list) // product.max_users_in_group + 1
+        group_count = product.group.count()
+        for group in range(new_group_count):
+            new_group = Group(
+                group_name=f"{product.product_name}_{group_count + group + 1}",
+                product=product
+            )
+            new_group.save()
+        groups = product.group.all().order_by('group_name')
+        for group in groups:
+            group.students.clear()
+        groups_count = product.group.count()
+        for n, user_pk in enumerate(list(product.students.all()) + user_list):
+            user_to_add = User.objects.get(pk=user_pk)
+            list(groups)[n % groups_count].students.add(user_to_add)
+
+
+def fill_product_after_start(product: Product, user_list: list) -> None:
+    free_spots_number = product.group.count() - product.students.count()
+    if len(user_list) < free_spots_number:
+        for user_pk in user_list:
+            group_with_min_load = product.group.all().annotate(students_count=Count('students')).order_by(
+                'students_count').first()
+            user = User.objects.get(user_pk)
+            group_with_min_load.students.add(user)
+    else:
+        new_group_count = (len(user_list) // product.max_users_in_group) + 1
+        new_groups = []
+        for group in range(new_group_count):
+            new_group = Group(
+                group_name=f"{product.product_name}_{group + 1}",
+                product=product
+            )
+            new_group.save()
+            new_groups.append(new_groups)
+        for n, user_pk in enumerate(user_list):
+            user_to_add = User.objects.get(pk=user_pk)
+            new_groups[n % new_group_count].students.add(user_to_add)
+
+
+
+m2m_changed.connect(fill_group_default,sender=Product.students.through)

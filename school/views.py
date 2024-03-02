@@ -6,7 +6,7 @@ from django.http import JsonResponse, HttpRequest, HttpResponseNotFound, HttpRes
 from django.core.exceptions import BadRequest
 from django.views.decorators.http import require_http_methods
 
-from school.models import Product, Lesson
+from school.models import Product, Lesson, Group
 
 
 # Create your views here.
@@ -52,7 +52,6 @@ def products(request: HttpRequest) -> JsonResponse:
     :param request: HttpRequest
     :return: JsonResponse with product data
     """
-    print('aaaaaaaaaaaaaaaaaaaa')
     queryset = Product.objects.all().values(
         'product_name',
         'author__username',
@@ -67,3 +66,16 @@ def products(request: HttpRequest) -> JsonResponse:
     )
     print(queryset)
     return JsonResponse(list(queryset), safe=False)
+
+
+# def test(request):
+#     p = Product.objects.get(pk=1)
+#     u = User.objects.get(pk=1)
+#     p.students.add(u)
+#     p.save()
+#     print(p.students.all())
+#     print(Group.objects.all())
+#     p.students.clear()
+#     p.save()
+#
+#     return JsonResponse(list(Group.objects.all()), safe=False)
