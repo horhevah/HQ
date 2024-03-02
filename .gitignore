@@ -1,0 +1,7 @@
+env/
+extra/
+files/
+.idea/
+**/__pycache__/
+**/migrations
+*.pyc
